@@ -64,7 +64,7 @@ class PlayerActivity : BasePlayerActivity() {
 
     private lateinit var skipSegmentButton: Button
 
-    // Enum untuk state rotasi
+    // ===== TAMBAHAN: Enum dan State untuk Rotasi Layar =====
     enum class RotationMode {
         AUTO,        // Sensor-based (auto)
         PORTRAIT,    // Force portrait
@@ -73,6 +73,7 @@ class PlayerActivity : BasePlayerActivity() {
     
     // State rotasi saat ini
     private var currentRotationMode = RotationMode.AUTO
+    // ======================================================
 
     private val isPipSupported by lazy {
         // Check if device has PiP feature
@@ -148,7 +149,10 @@ class PlayerActivity : BasePlayerActivity() {
         val pipButton = binding.playerView.findViewById<ImageButton>(R.id.btn_pip)
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
+        
+        // ===== TAMBAHAN: Deklarasi Tombol Rotasi =====
         val rotationButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotation)
+        // ==============================================
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -280,12 +284,15 @@ class PlayerActivity : BasePlayerActivity() {
             isControlsLocked = true
         }
 
+        // ===== MODIFIKASI: Unlock Button Listener =====
         unlockButton.setOnClickListener {
             exoPlayerControlView.visibility = View.VISIBLE
             lockedLayout.visibility = View.GONE
+            // Kembalikan ke mode rotasi sebelumnya (bukan selalu landscape)
             applyRotationMode()
             isControlsLocked = false
         }
+        // ==============================================
 
         subtitleButton.setOnClickListener {
             TrackSelectionDialogFragment(C.TRACK_TYPE_TEXT, viewModel)
@@ -297,11 +304,13 @@ class PlayerActivity : BasePlayerActivity() {
                 .show(supportFragmentManager, "speedselectiondialog")
         }
 
+        // ===== TAMBAHAN: Click Listener untuk Tombol Rotasi =====
         rotationButton.setOnClickListener {
             if (!isControlsLocked) {
                 cycleRotationMode()
             }
         }
+        // ========================================================
 
         pipButton.setOnClickListener { pictureInPicture() }
 
@@ -323,9 +332,10 @@ class PlayerActivity : BasePlayerActivity() {
         )
         hideSystemUI()
         
-        // Inisialisasi mode rotasi
+        // ===== TAMBAHAN: Inisialisasi Mode Rotasi =====
         currentRotationMode = RotationMode.AUTO
         applyRotationMode()
+        // ==============================================
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -467,6 +477,8 @@ class PlayerActivity : BasePlayerActivity() {
         }
     }
 
+    // ===== TAMBAHAN: Fungsi-Fungsi untuk Rotasi Layar =====
+    
     /**
      * Cycle antara mode rotasi: Auto -> Portrait -> Landscape -> Auto
      */
@@ -498,4 +510,6 @@ class PlayerActivity : BasePlayerActivity() {
             }
         }
     }
+    
+    // ======================================================
 }
