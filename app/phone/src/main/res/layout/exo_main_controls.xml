@@ -130,6 +130,21 @@
                 android:src="@drawable/ic_closed_caption"
                 app:tint="@android:color/white" />
 
+            <Space
+                android:layout_width="16dp"
+                android:layout_height="0dp" />
+
+            <ImageButton
+                android:id="@+id/btn_rotation"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="center"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/rotation_button"
+                android:padding="12dp"
+                android:src="@drawable/ic_screen_rotation"
+                android:tint="@android:color/white" />
+
         </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>

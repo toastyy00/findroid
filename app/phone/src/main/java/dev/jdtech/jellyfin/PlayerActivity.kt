@@ -64,6 +64,17 @@ class PlayerActivity : BasePlayerActivity() {
 
     private lateinit var skipSegmentButton: Button
 
+    // ===== TAMBAHAN: Enum dan State untuk Rotasi Layar =====
+    enum class RotationMode {
+        AUTO,        // Sensor-based (auto)
+        PORTRAIT,    // Force portrait
+        LANDSCAPE    // Force landscape
+    }
+    
+    // State rotasi saat ini
+    private var currentRotationMode = RotationMode.AUTO
+    // ======================================================
+
     private val isPipSupported by lazy {
         // Check if device has PiP feature
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
@@ -138,6 +149,10 @@ class PlayerActivity : BasePlayerActivity() {
         val pipButton = binding.playerView.findViewById<ImageButton>(R.id.btn_pip)
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
+        
+        // ===== TAMBAHAN: Deklarasi Tombol Rotasi =====
+        val rotationButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotation)
+        // ==============================================
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -197,82 +212,57 @@ class PlayerActivity : BasePlayerActivity() {
                                 playerControlView.setExtraAdGroupMarkers(null, null)
                             }
 
-                            // File Loaded
-                            if (fileLoaded) {
-                                audioButton.isEnabled = true
-                                audioButton.imageAlpha = 255
-                                lockButton.isEnabled = true
-                                lockButton.imageAlpha = 255
-                                subtitleButton.isEnabled = true
-                                subtitleButton.imageAlpha = 255
-                                speedButton.isEnabled = true
-                                speedButton.imageAlpha = 255
-                                pipButton.isEnabled = true
-                                pipButton.imageAlpha = 255
+                            // Intro skip
+                            introButton?.let { introButton ->
+                                currentIntro?.let { intro ->
+                                    introButton.setOnClickListener {
+                                        viewModel.seekTo(intro.introEnd)
+                                    }
+                                }
+                            }
+
+                            // Previous item
+                            previousButton?.let { previousButton ->
+                                hasPreviousItem?.let { hasPreviousItem ->
+                                    previousButton.isVisible =
+                                        hasPreviousItem && !isInPictureInPictureMode
+                                    if (hasPreviousItem) {
+                                        previousButton.setOnClickListener {
+                                            viewModel.navigateToPrevious()
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Next item
+                            nextButton?.let { nextButton ->
+                                hasNextItem?.let { hasNextItem ->
+                                    nextButton.isVisible =
+                                        hasNextItem && !isInPictureInPictureMode
+                                    if (hasNextItem) {
+                                        nextButton.setOnClickListener {
+                                            viewModel.navigateToNext()
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
-
                 launch {
-                    viewModel.eventsChannelFlow.collect { event ->
+                    viewModel.events.collect { event ->
                         when (event) {
-                            is PlayerEvents.NavigateBack -> finishPlayback()
-                            is PlayerEvents.IsPlayingChanged -> {
-                                if (event.isPlaying) {
-                                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                                } else {
-                                    window.clearFlags(
-                                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                                    )
-                                }
-
-                                if (appPreferences.getValue(appPreferences.playerPipGesture)) {
-                                    try {
-                                        setPictureInPictureParams(pipParams(event.isPlaying))
-                                    } catch (_: IllegalArgumentException) {}
-                                }
+                            PlayerEvents.PlaybackEnded -> {
+                                finish()
                             }
-                        }
-                    }
-                }
-
-                launch {
-                    while (true) {
-                        viewModel.updatePlaybackProgress()
-                        delay(5000L)
-                    }
-                }
-
-                if (
-                    appPreferences.getValue(appPreferences.playerMediaSegmentsSkipButton) ||
-                        appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkip)
-                ) {
-                    launch {
-                        while (true) {
-                            viewModel.updateCurrentSegment()
-                            delay(1000L)
                         }
                     }
                 }
             }
         }
 
-        audioButton.isEnabled = false
-        audioButton.imageAlpha = 75
-
-        lockButton.isEnabled = false
-        lockButton.imageAlpha = 75
-
-        subtitleButton.isEnabled = false
-        subtitleButton.imageAlpha = 75
-
-        speedButton.isEnabled = false
-        speedButton.imageAlpha = 75
-
         if (isPipSupported) {
-            pipButton.isEnabled = false
-            pipButton.imageAlpha = 75
+            setPictureInPictureParams(pipParams(false))
         } else {
             val pipSpace = binding.playerView.findViewById<Space>(R.id.space_pip)
             pipButton.isVisible = false
@@ -294,12 +284,15 @@ class PlayerActivity : BasePlayerActivity() {
             isControlsLocked = true
         }
 
+        // ===== MODIFIKASI: Unlock Button Listener =====
         unlockButton.setOnClickListener {
             exoPlayerControlView.visibility = View.VISIBLE
             lockedLayout.visibility = View.GONE
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            // Kembalikan ke mode rotasi sebelumnya (bukan selalu landscape)
+            applyRotationMode()
             isControlsLocked = false
         }
+        // ==============================================
 
         subtitleButton.setOnClickListener {
             TrackSelectionDialogFragment(C.TRACK_TYPE_TEXT, viewModel)
@@ -310,6 +303,14 @@ class PlayerActivity : BasePlayerActivity() {
             SpeedSelectionDialogFragment(viewModel)
                 .show(supportFragmentManager, "speedselectiondialog")
         }
+
+        // ===== TAMBAHAN: Click Listener untuk Tombol Rotasi =====
+        rotationButton.setOnClickListener {
+            if (!isControlsLocked) {
+                cycleRotationMode()
+            }
+        }
+        // ========================================================
 
         pipButton.setOnClickListener { pictureInPicture() }
 
@@ -330,6 +331,11 @@ class PlayerActivity : BasePlayerActivity() {
             startFromBeginning = startFromBeginning,
         )
         hideSystemUI()
+        
+        // ===== TAMBAHAN: Inisialisasi Mode Rotasi =====
+        currentRotationMode = RotationMode.AUTO
+        applyRotationMode()
+        // ==============================================
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -470,4 +476,40 @@ class PlayerActivity : BasePlayerActivity() {
             }
         }
     }
+
+    // ===== TAMBAHAN: Fungsi-Fungsi untuk Rotasi Layar =====
+    
+    /**
+     * Cycle antara mode rotasi: Auto -> Portrait -> Landscape -> Auto
+     */
+    private fun cycleRotationMode() {
+        currentRotationMode = when (currentRotationMode) {
+            RotationMode.AUTO -> RotationMode.PORTRAIT
+            RotationMode.PORTRAIT -> RotationMode.LANDSCAPE
+            RotationMode.LANDSCAPE -> RotationMode.AUTO
+        }
+        applyRotationMode()
+    }
+
+    /**
+     * Terapkan mode rotasi yang dipilih
+     */
+    private fun applyRotationMode() {
+        when (currentRotationMode) {
+            RotationMode.AUTO -> {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+                Timber.d("Rotation mode: AUTO (Sensor-based)")
+            }
+            RotationMode.PORTRAIT -> {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                Timber.d("Rotation mode: PORTRAIT")
+            }
+            RotationMode.LANDSCAPE -> {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                Timber.d("Rotation mode: LANDSCAPE")
+            }
+        }
+    }
+    
+    // ======================================================
 }
