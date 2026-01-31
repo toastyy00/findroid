@@ -24,6 +24,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.Space
 import android.widget.TextView
+import android.widget.Toast // Tambahan Import
 import androidx.activity.viewModels
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
@@ -50,6 +51,11 @@ import timber.log.Timber
 
 var isControlsLocked: Boolean = false
 
+// --- MODIFIKASI: Enum untuk Mode Rotasi ---
+enum class RotationMode {
+    AUTO, PORTRAIT, LANDSCAPE
+}
+
 @AndroidEntryPoint
 class PlayerActivity : BasePlayerActivity() {
 
@@ -64,24 +70,13 @@ class PlayerActivity : BasePlayerActivity() {
 
     private lateinit var skipSegmentButton: Button
 
-    // ===== TAMBAHAN: Enum dan State untuk Rotasi Layar =====
-    enum class RotationMode {
-        AUTO,        // Sensor-based (auto)
-        PORTRAIT,    // Force portrait
-        LANDSCAPE    // Force landscape
-    }
-    
-    // State rotasi saat ini
+    // --- MODIFIKASI: State Rotasi ---
     private var currentRotationMode = RotationMode.AUTO
-    // ======================================================
 
     private val isPipSupported by lazy {
-        // Check if device has PiP feature
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
             return@lazy false
         }
-
-        // Check if PiP is enabled for the app
         val appOps = getSystemService(APP_OPS_SERVICE) as AppOpsManager?
         appOps?.checkOpNoThrow(
             AppOpsManager.OPSTR_PICTURE_IN_PICTURE,
@@ -150,24 +145,18 @@ class PlayerActivity : BasePlayerActivity() {
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
         
-        // ===== TAMBAHAN: Deklarasi Tombol Rotasi =====
+        // --- MODIFIKASI: Deklarasi Tombol Rotasi ---
         val rotationButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotation)
-        // ==============================================
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.uiState.collect { uiState ->
-                        Timber.d("$uiState")
                         uiState.apply {
-                            // Title
                             videoNameTextView.text = currentItemTitle
 
-                            // Media segment
                             currentSegment?.let { segment ->
-                                // Skip Button - text
                                 skipSegmentButton.text = getString(currentSkipButtonStringRes)
-                                // Skip Button - visibility
                                 skipSegmentButton.isVisible = !isInPictureInPictureMode
                                 if (skipSegmentButton.isVisible) {
                                     skipButtonTimeoutExpired = false
@@ -177,7 +166,6 @@ class PlayerActivity : BasePlayerActivity() {
                                         viewModel.segmentsSkipButtonDuration * 1000,
                                     )
                                 }
-                                // Skip Button - onClick
                                 skipSegmentButton.setOnClickListener {
                                     viewModel.skipSegment(segment)
                                     skipSegmentButton.isVisible = false
@@ -192,12 +180,9 @@ class PlayerActivity : BasePlayerActivity() {
                                 }
                             )
 
-                            // Trickplay
                             previewScrubListener?.let { it.currentTrickplay = currentTrickplay }
-
                             playerGestureHelper?.let { it.currentTrickplay = currentTrickplay }
 
-                            // Chapters
                             val playerControlView =
                                 findViewById<PlayerControlView>(R.id.exo_controller)
                             if (currentChapters.isNotEmpty()) {
@@ -212,57 +197,84 @@ class PlayerActivity : BasePlayerActivity() {
                                 playerControlView.setExtraAdGroupMarkers(null, null)
                             }
 
-                            // Intro skip
-                            introButton?.let { introButton ->
-                                currentIntro?.let { intro ->
-                                    introButton.setOnClickListener {
-                                        viewModel.seekTo(intro.introEnd)
-                                    }
-                                }
+                            if (fileLoaded) {
+                                audioButton.isEnabled = true
+                                audioButton.imageAlpha = 255
+                                lockButton.isEnabled = true
+                                lockButton.imageAlpha = 255
+                                subtitleButton.isEnabled = true
+                                subtitleButton.imageAlpha = 255
+                                speedButton.isEnabled = true
+                                speedButton.imageAlpha = 255
+                                pipButton.isEnabled = true
+                                pipButton.imageAlpha = 255
+                                // --- MODIFIKASI: Aktifkan tombol rotasi ---
+                                rotationButton.isEnabled = true
+                                rotationButton.imageAlpha = 255
                             }
+                        }
+                    }
+                }
 
-                            // Previous item
-                            previousButton?.let { previousButton ->
-                                hasPreviousItem?.let { hasPreviousItem ->
-                                    previousButton.isVisible =
-                                        hasPreviousItem && !isInPictureInPictureMode
-                                    if (hasPreviousItem) {
-                                        previousButton.setOnClickListener {
-                                            viewModel.navigateToPrevious()
-                                        }
-                                    }
+                launch {
+                    viewModel.eventsChannelFlow.collect { event ->
+                        when (event) {
+                            is PlayerEvents.NavigateBack -> finishPlayback()
+                            is PlayerEvents.IsPlayingChanged -> {
+                                if (event.isPlaying) {
+                                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                } else {
+                                    window.clearFlags(
+                                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                                    )
                                 }
-                            }
-
-                            // Next item
-                            nextButton?.let { nextButton ->
-                                hasNextItem?.let { hasNextItem ->
-                                    nextButton.isVisible =
-                                        hasNextItem && !isInPictureInPictureMode
-                                    if (hasNextItem) {
-                                        nextButton.setOnClickListener {
-                                            viewModel.navigateToNext()
-                                        }
-                                    }
+                                if (appPreferences.getValue(appPreferences.playerPipGesture)) {
+                                    try {
+                                        setPictureInPictureParams(pipParams(event.isPlaying))
+                                    } catch (_: IllegalArgumentException) {}
                                 }
                             }
                         }
                     }
                 }
+
                 launch {
-                    viewModel.events.collect { event ->
-                        when (event) {
-                            PlayerEvents.PlaybackEnded -> {
-                                finish()
-                            }
+                    while (true) {
+                        viewModel.updatePlaybackProgress()
+                        delay(5000L)
+                    }
+                }
+
+                if (
+                    appPreferences.getValue(appPreferences.playerMediaSegmentsSkipButton) ||
+                        appPreferences.getValue(appPreferences.playerMediaSegmentsAutoSkip)
+                ) {
+                    launch {
+                        while (true) {
+                            viewModel.updateCurrentSegment()
+                            delay(1000L)
                         }
                     }
                 }
             }
         }
 
+        audioButton.isEnabled = false
+        audioButton.imageAlpha = 75
+        lockButton.isEnabled = false
+        lockButton.imageAlpha = 75
+        subtitleButton.isEnabled = false
+        subtitleButton.imageAlpha = 75
+        speedButton.isEnabled = false
+        speedButton.imageAlpha = 75
+        
+        // --- MODIFIKASI: Initial alpha tombol rotasi ---
+        rotationButton.isEnabled = false
+        rotationButton.imageAlpha = 75
+
         if (isPipSupported) {
-            setPictureInPictureParams(pipParams(false))
+            pipButton.isEnabled = false
+            pipButton.imageAlpha = 75
         } else {
             val pipSpace = binding.playerView.findViewById<Space>(R.id.space_pip)
             pipButton.isVisible = false
@@ -284,15 +296,20 @@ class PlayerActivity : BasePlayerActivity() {
             isControlsLocked = true
         }
 
-        // ===== MODIFIKASI: Unlock Button Listener =====
+        // --- MODIFIKASI: Unlock mengikuti mode rotasi ---
         unlockButton.setOnClickListener {
             exoPlayerControlView.visibility = View.VISIBLE
             lockedLayout.visibility = View.GONE
-            // Kembalikan ke mode rotasi sebelumnya (bukan selalu landscape)
             applyRotationMode()
             isControlsLocked = false
         }
-        // ==============================================
+
+        // --- MODIFIKASI: Listener Tombol Rotasi ---
+        rotationButton.setOnClickListener {
+            if (!isControlsLocked) {
+                cycleRotationMode()
+            }
+        }
 
         subtitleButton.setOnClickListener {
             TrackSelectionDialogFragment(C.TRACK_TYPE_TEXT, viewModel)
@@ -304,24 +321,14 @@ class PlayerActivity : BasePlayerActivity() {
                 .show(supportFragmentManager, "speedselectiondialog")
         }
 
-        // ===== TAMBAHAN: Click Listener untuk Tombol Rotasi =====
-        rotationButton.setOnClickListener {
-            if (!isControlsLocked) {
-                cycleRotationMode()
-            }
-        }
-        // ========================================================
-
         pipButton.setOnClickListener { pictureInPicture() }
 
-        // Set marker color
         val timeBar = binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)
         timeBar.setAdMarkerColor(Color.WHITE)
 
         if (appPreferences.getValue(appPreferences.playerTrickplay)) {
             val imagePreview = binding.playerView.findViewById<ImageView>(R.id.image_preview)
             previewScrubListener = PreviewScrubListener(imagePreview, timeBar, viewModel.player)
-
             timeBar.addListener(previewScrubListener!!)
         }
 
@@ -331,21 +338,17 @@ class PlayerActivity : BasePlayerActivity() {
             startFromBeginning = startFromBeginning,
         )
         hideSystemUI()
-        
-        // ===== TAMBAHAN: Inisialisasi Mode Rotasi =====
-        currentRotationMode = RotationMode.AUTO
+
+        // --- MODIFIKASI: Initial Apply ---
         applyRotationMode()
-        // ==============================================
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-
         val itemId = UUID.fromString(intent.extras!!.getString("itemId"))
         val itemKind = intent.extras!!.getString("itemKind")
         val startFromBeginning = intent.extras!!.getBoolean("startFromBeginning")
-
         viewModel.initializePlayer(
             itemId = itemId,
             itemKind = itemKind ?: "",
@@ -381,7 +384,6 @@ class PlayerActivity : BasePlayerActivity() {
         enableAutoEnter: Boolean = viewModel.player.isPlaying
     ): PictureInPictureParams {
         val displayAspectRatio = Rational(binding.playerView.width, binding.playerView.height)
-
         val aspectRatio =
             binding.playerView.player?.videoSize?.let {
                 Rational(
@@ -389,52 +391,57 @@ class PlayerActivity : BasePlayerActivity() {
                     it.height.coerceAtMost((it.width * 2.39f).toInt()),
                 )
             }
-
         val sourceRectHint =
             if (displayAspectRatio < aspectRatio!!) {
                 val space =
                     ((binding.playerView.height -
                             (binding.playerView.width.toFloat() / aspectRatio.toFloat())) / 2)
                         .toInt()
-                Rect(
-                    0,
-                    space,
-                    binding.playerView.width,
-                    (binding.playerView.width.toFloat() / aspectRatio.toFloat()).toInt() + space,
-                )
+                Rect(0, space, binding.playerView.width, (binding.playerView.width.toFloat() / aspectRatio.toFloat()).toInt() + space)
             } else {
                 val space =
                     ((binding.playerView.width -
                             (binding.playerView.height.toFloat() * aspectRatio.toFloat())) / 2)
                         .toInt()
-                Rect(
-                    space,
-                    0,
-                    (binding.playerView.height.toFloat() * aspectRatio.toFloat()).toInt() + space,
-                    binding.playerView.height,
-                )
+                Rect(space, 0, (binding.playerView.height.toFloat() * aspectRatio.toFloat()).toInt() + space, binding.playerView.height)
             }
-
         val builder =
             PictureInPictureParams.Builder()
                 .setAspectRatio(aspectRatio)
                 .setSourceRectHint(sourceRectHint)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setAutoEnterEnabled(enableAutoEnter)
         }
-
         return builder.build()
     }
 
     private fun pictureInPicture() {
-        if (!isPipSupported) {
-            return
-        }
+        if (!isPipSupported) return
+        try { enterPictureInPictureMode(pipParams()) } catch (_: IllegalArgumentException) {}
+    }
 
-        try {
-            enterPictureInPictureMode(pipParams())
-        } catch (_: IllegalArgumentException) {}
+    // --- MODIFIKASI: Fungsi Helper Rotasi ---
+    private fun cycleRotationMode() {
+        currentRotationMode = when (currentRotationMode) {
+            RotationMode.AUTO -> RotationMode.PORTRAIT
+            RotationMode.PORTRAIT -> RotationMode.LANDSCAPE
+            RotationMode.LANDSCAPE -> RotationMode.AUTO
+        }
+        applyRotationMode()
+        val modeText = when(currentRotationMode) {
+            RotationMode.AUTO -> getString(R.string.rotation_auto)
+            RotationMode.PORTRAIT -> getString(R.string.rotation_portrait)
+            RotationMode.LANDSCAPE -> getString(R.string.rotation_landscape)
+        }
+        Toast.makeText(this, modeText, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyRotationMode() {
+        when (currentRotationMode) {
+            RotationMode.AUTO -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            RotationMode.PORTRAIT -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            RotationMode.LANDSCAPE -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
     }
 
     override fun onPictureInPictureModeChanged(
@@ -447,22 +454,16 @@ class PlayerActivity : BasePlayerActivity() {
             true -> {
                 binding.playerView.useController = false
                 skipSegmentButton.isVisible = false
-
                 wasZoom = playerGestureHelper?.isZoomEnabled == true
                 playerGestureHelper?.updateZoomMode(false)
-
-                // Brightness mode Auto
                 window.attributes =
                     window.attributes.apply {
                         screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
                     }
             }
-
             false -> {
                 binding.playerView.useController = true
                 playerGestureHelper?.updateZoomMode(wasZoom)
-
-                // Override auto brightness
                 if (
                     appPreferences.getValue(appPreferences.playerGesturesVB) &&
                         appPreferences.getValue(appPreferences.playerGesturesBrightnessRemember)
@@ -476,40 +477,4 @@ class PlayerActivity : BasePlayerActivity() {
             }
         }
     }
-
-    // ===== TAMBAHAN: Fungsi-Fungsi untuk Rotasi Layar =====
-    
-    /**
-     * Cycle antara mode rotasi: Auto -> Portrait -> Landscape -> Auto
-     */
-    private fun cycleRotationMode() {
-        currentRotationMode = when (currentRotationMode) {
-            RotationMode.AUTO -> RotationMode.PORTRAIT
-            RotationMode.PORTRAIT -> RotationMode.LANDSCAPE
-            RotationMode.LANDSCAPE -> RotationMode.AUTO
-        }
-        applyRotationMode()
-    }
-
-    /**
-     * Terapkan mode rotasi yang dipilih
-     */
-    private fun applyRotationMode() {
-        when (currentRotationMode) {
-            RotationMode.AUTO -> {
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
-                Timber.d("Rotation mode: AUTO (Sensor-based)")
-            }
-            RotationMode.PORTRAIT -> {
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                Timber.d("Rotation mode: PORTRAIT")
-            }
-            RotationMode.LANDSCAPE -> {
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                Timber.d("Rotation mode: LANDSCAPE")
-            }
-        }
-    }
-    
-    // ======================================================
 }
