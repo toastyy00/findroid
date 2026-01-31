@@ -142,7 +142,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/rotation_button"
                 android:padding="12dp"
-                android:src="@drawable/ic_screen_rotation"
+                android:src="@drawable/transparent_circle_background"
                 android:tint="@android:color/white" />
 
         </LinearLayout>
