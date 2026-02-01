@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="rotation_button">Screen Rotation</string>
-    <string name="rotation_auto">Auto Rotation</string>
-    <string name="rotation_portrait">Portrait Mode</string>
-    <string name="rotation_landscape">Landscape Mode</string>
+    <string name="rotation_button">Rotation</string>
+    <string name="rotation_auto">Auto</string>
+    <string name="rotation_portrait">Portrait</string>
+    <string name="rotation_landscape">Landscape</string>
 
 </resources>

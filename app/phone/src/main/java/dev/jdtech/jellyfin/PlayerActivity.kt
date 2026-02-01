@@ -24,7 +24,8 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.Space
 import android.widget.TextView
-import android.widget.Toast // Diperlukan untuk feedback
+import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.color.MaterialColors
 import androidx.activity.viewModels
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
@@ -453,7 +454,17 @@ class PlayerActivity : BasePlayerActivity() {
             RotationMode.PORTRAIT -> getString(R.string.rotation_portrait)
             RotationMode.LANDSCAPE -> getString(R.string.rotation_landscape)
         }
-        Toast.makeText(this, modeText, Toast.LENGTH_SHORT).show()
+
+        // --- MODIFIKASI: Snackbar Material You Dinamis ---
+        val snackbar = Snackbar.make(binding.root, modeText, Snackbar.LENGTH_SHORT)
+            .setAnchorView(R.id.exo_progress) // Tetap melayang di atas seekbar
+
+        val backgroundColor = MaterialColors.getColor(binding.root, com.google.android.material.R.attr.colorPrimaryContainer)
+        val textColor = MaterialColors.getColor(binding.root, com.google.android.material.R.attr.colorOnPrimaryContainer)
+
+        snackbar.setBackgroundTint(backgroundColor)
+        snackbar.setTextColor(textColor)
+        snackbar.show()
     }
 
     private fun applyRotationMode() {
