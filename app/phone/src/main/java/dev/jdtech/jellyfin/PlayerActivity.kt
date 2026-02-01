@@ -24,7 +24,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.Space
 import android.widget.TextView
-import android.widget.Toast // Tambahan Import
+import android.widget.Toast // Diperlukan untuk feedback
 import androidx.activity.viewModels
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
@@ -51,7 +51,7 @@ import timber.log.Timber
 
 var isControlsLocked: Boolean = false
 
-// --- MODIFIKASI: Enum untuk Mode Rotasi ---
+// Enum untuk menentukan state rotasi layar
 enum class RotationMode {
     AUTO, PORTRAIT, LANDSCAPE
 }
@@ -70,8 +70,9 @@ class PlayerActivity : BasePlayerActivity() {
 
     private lateinit var skipSegmentButton: Button
 
-    // --- MODIFIKASI: State Rotasi ---
+    // --- MODIFIKASI: State Rotasi & Smart Default ---
     private var currentRotationMode = RotationMode.AUTO
+    private var isInitialOrientationSet = false
 
     private val isPipSupported by lazy {
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
@@ -145,7 +146,7 @@ class PlayerActivity : BasePlayerActivity() {
         val lockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_lockview)
         val unlockButton = binding.playerView.findViewById<ImageButton>(R.id.btn_unlock)
         
-        // --- MODIFIKASI: Deklarasi Tombol Rotasi ---
+        // Inisialisasi Tombol Rotasi
         val rotationButton = binding.playerView.findViewById<ImageButton>(R.id.btn_rotation)
 
         lifecycleScope.launch {
@@ -208,9 +209,15 @@ class PlayerActivity : BasePlayerActivity() {
                                 speedButton.imageAlpha = 255
                                 pipButton.isEnabled = true
                                 pipButton.imageAlpha = 255
-                                // --- MODIFIKASI: Aktifkan tombol rotasi ---
+                                
+                                // Aktifkan tombol rotasi
                                 rotationButton.isEnabled = true
                                 rotationButton.imageAlpha = 255
+
+                                // --- LOGIKA SMART DEFAULT: Deteksi Rasio Video ---
+                                if (!isInitialOrientationSet) {
+                                    setSmartOrientation()
+                                }
                             }
                         }
                     }
@@ -267,8 +274,6 @@ class PlayerActivity : BasePlayerActivity() {
         subtitleButton.imageAlpha = 75
         speedButton.isEnabled = false
         speedButton.imageAlpha = 75
-        
-        // --- MODIFIKASI: Initial alpha tombol rotasi ---
         rotationButton.isEnabled = false
         rotationButton.imageAlpha = 75
 
@@ -296,15 +301,13 @@ class PlayerActivity : BasePlayerActivity() {
             isControlsLocked = true
         }
 
-        // --- MODIFIKASI: Unlock mengikuti mode rotasi ---
         unlockButton.setOnClickListener {
             exoPlayerControlView.visibility = View.VISIBLE
             lockedLayout.visibility = View.GONE
-            applyRotationMode()
+            applyRotationMode() // Mengembalikan ke mode sebelum di-lock
             isControlsLocked = false
         }
 
-        // --- MODIFIKASI: Listener Tombol Rotasi ---
         rotationButton.setOnClickListener {
             if (!isControlsLocked) {
                 cycleRotationMode()
@@ -338,14 +341,15 @@ class PlayerActivity : BasePlayerActivity() {
             startFromBeginning = startFromBeginning,
         )
         hideSystemUI()
-
-        // --- MODIFIKASI: Initial Apply ---
-        applyRotationMode()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        
+        // Reset state untuk video baru
+        isInitialOrientationSet = false 
+        
         val itemId = UUID.fromString(intent.extras!!.getString("itemId"))
         val itemKind = intent.extras!!.getString("itemKind")
         val startFromBeginning = intent.extras!!.getBoolean("startFromBeginning")
@@ -420,7 +424,22 @@ class PlayerActivity : BasePlayerActivity() {
         try { enterPictureInPictureMode(pipParams()) } catch (_: IllegalArgumentException) {}
     }
 
-    // --- MODIFIKASI: Fungsi Helper Rotasi ---
+    // --- FUNGSI HELPER ROTASI PINTAR ---
+
+    private fun setSmartOrientation() {
+        val videoSize = viewModel.player.videoSize
+        if (videoSize.width > 0 && videoSize.height > 0) {
+            // Deteksi berdasarkan rasio: Landscape jika lebar >= tinggi
+            currentRotationMode = if (videoSize.width >= videoSize.height) {
+                RotationMode.LANDSCAPE
+            } else {
+                RotationMode.PORTRAIT
+            }
+            applyRotationMode()
+            isInitialOrientationSet = true
+        }
+    }
+
     private fun cycleRotationMode() {
         currentRotationMode = when (currentRotationMode) {
             RotationMode.AUTO -> RotationMode.PORTRAIT
@@ -428,6 +447,7 @@ class PlayerActivity : BasePlayerActivity() {
             RotationMode.LANDSCAPE -> RotationMode.AUTO
         }
         applyRotationMode()
+        
         val modeText = when(currentRotationMode) {
             RotationMode.AUTO -> getString(R.string.rotation_auto)
             RotationMode.PORTRAIT -> getString(R.string.rotation_portrait)
